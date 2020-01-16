@@ -9,19 +9,22 @@
 
 //------------------------------------------------------------------------------
 //
-// Example: HTTP SSL server, asynchronous
+// Based on the Beast Example: HTTP SSL server, asynchronous
 //
 //------------------------------------------------------------------------------
 
-#include "example/common/server_certificate.hpp"
+#include "tls_helpers.h"
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
-#include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/config.hpp>
+
+#include <botan/asio_stream.h>
+#include <botan/auto_rng.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <functional>
@@ -34,7 +37,6 @@
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http = beast::http;           // from <boost/beast/http.hpp>
 namespace net = boost::asio;            // from <boost/asio.hpp>
-namespace ssl = boost::asio::ssl;       // from <boost/asio/ssl.hpp>
 using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
 // Return a reasonable mime type based on the extension of a file.
@@ -230,7 +232,7 @@ fail(beast::error_code ec, char const* what)
     // Therefore, if we see a short read here, it has occurred
     // after the message has been completed, so it is safe to ignore it.
 
-    if(ec == net::ssl::error::stream_truncated)
+    if(ec == Botan::TLS::StreamTruncated)
         return;
 
     std::cerr << what << ": " << ec.message() << "\n";
@@ -276,7 +278,7 @@ class session : public std::enable_shared_from_this<session>
         }
     };
 
-    beast::ssl_stream<beast::tcp_stream> stream_;
+    Botan::TLS::Stream<beast::tcp_stream> stream_;
     beast::flat_buffer buffer_;
     std::shared_ptr<std::string const> doc_root_;
     http::request<http::string_body> req_;
@@ -288,7 +290,7 @@ public:
     explicit
     session(
         tcp::socket&& socket,
-        ssl::context& ctx,
+        Botan::TLS::Context& ctx,
         std::shared_ptr<std::string const> const& doc_root)
         : stream_(std::move(socket), ctx)
         , doc_root_(doc_root)
@@ -320,7 +322,7 @@ public:
 
         // Perform the SSL handshake
         stream_.async_handshake(
-            ssl::stream_base::server,
+            Botan::TLS::Connection_Side::SERVER,
             beast::bind_front_handler(
                 &session::on_handshake,
                 shared_from_this()));
@@ -424,14 +426,14 @@ public:
 class listener : public std::enable_shared_from_this<listener>
 {
     net::io_context& ioc_;
-    ssl::context& ctx_;
+    Botan::TLS::Context& ctx_;
     tcp::acceptor acceptor_;
     std::shared_ptr<std::string const> doc_root_;
 
 public:
     listener(
         net::io_context& ioc,
-        ssl::context& ctx,
+        Botan::TLS::Context& ctx,
         tcp::endpoint endpoint,
         std::shared_ptr<std::string const> const& doc_root)
         : ioc_(ioc)
@@ -520,12 +522,13 @@ private:
 int main(int argc, char* argv[])
 {
     // Check command line arguments.
-    if (argc != 5)
+    if (argc != 7)
     {
         std::cerr <<
-            "Usage: http-server-async-ssl <address> <port> <doc_root> <threads>\n" <<
+            "Usage: http-server-async-ssl <address> <port> <doc_root> " <<
+            "<threads> <server-cert> <server-key>\n" <<
             "Example:\n" <<
-            "    http-server-async-ssl 0.0.0.0 8080 . 1\n";
+            "    http-server-async-ssl 0.0.0.0 8080 . 1 cert.pem key.pem\n";
         return EXIT_FAILURE;
     }
     auto const address = net::ip::make_address(argv[1]);
@@ -533,14 +536,20 @@ int main(int argc, char* argv[])
     auto const doc_root = std::make_shared<std::string>(argv[3]);
     auto const threads = std::max<int>(1, std::atoi(argv[4]));
 
+    auto const cert_file = argv[5];
+    auto const key_file = argv[6];
+
     // The io_context is required for all I/O
     net::io_context ioc{threads};
 
-    // The SSL context is required, and holds certificates
-    ssl::context ctx{ssl::context::tlsv12};
+    Botan::TLS::Session_Manager_Noop session_mgr_;
+    Botan::AutoSeeded_RNG rng_;
 
-    // This holds the self-signed certificate used by the server
-    load_server_certificate(ctx);
+    Basic_Credentials_Manager credentials_mgr_(rng_, cert_file, key_file);
+    TLS_All_Policy  policy_;
+
+    Botan::TLS::Context ctx(credentials_mgr_, rng_, session_mgr_, policy_,
+                            Botan::TLS::Server_Information());
 
     // Create and launch a listening port
     std::make_shared<listener>(
