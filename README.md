@@ -12,13 +12,10 @@ In addition, reads the server certificate and private key are read from local fi
 
 ## Build and Run
 
-The [pull request implementing this feature](https://github.com/randombit/botan/pull/2229) is not yet merged in Botan.
-Build Botan based on the PR.
-
-After that, compile the example:
+Botan 2.14 or newer is required. To compile the example:
 ```bash
 mkdir build && cd build
-cmake .. -DBOTAN_ROOT_DIR=<path-to-botan-build-directory>
+cmake .. -DBOTAN_ROOT_DIR=<path-to-botan-directory>
 cmake --build .
 ```
 
