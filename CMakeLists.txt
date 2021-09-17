@@ -13,7 +13,7 @@ endif ()
 set(BOTAN_INCLUDE_DIR "${BOTAN_ROOT_DIR}/include")
 include_directories(${Boost_INCLUDE_DIRS} ${BOTAN_INCLUDE_DIR})
 
-find_library(BOTAN_LIBRARY botan PATHS ${BOTAN_ROOT_DIR})
+find_library(BOTAN_LIBRARY botan-3 PATHS ${BOTAN_ROOT_DIR})
 
 if(UNIX AND NOT APPLE)
     # link pthread on linux
